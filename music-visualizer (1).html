@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>JSViz</title>
+        <style>body { margin: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; background-color: #1a1a1a; font-family: Arial, sans-serif; color: #fff; } #visualizer { background-color: #000; margin-top: 23px; width: 900px; min-width: 600px; margin-bottom: 20px; display: block; flex-wrap: wrap; justify-content: center; max-width: 2000px; height: 500px; min-height: 300px; max-height: 550px; visibility: visible; vertical-align: baseline; cursor: progress; object-fit: fill; background-position: center center; background-size: auto; background-attachment: fixed; border-radius: 4px; border-width: 3px; outline: 6px; box-shadow: 0px 2px; } #status { margin-top: 10px; font-weight: bold; } button, select, input { margin: 5px; padding: 5px 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }; button: disabled { background-color: #ddd; color: #666; cursor: not-allowed; } label { margin: 5px; display: flex; align-items: center; }; }</style>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto&display=swap">
+    </head>
+    <body>
+        <div id="controls" style="display: inline-flex; align-self: center; height: 179px; vertical-align: sub; resize: initial; visibility: visible; box-sizing: initial; overflow: auto; object-fit: cover; object-position: -30px; aspect-ratio: 5; top: 4px; position: absolute; z-index: 0; background-size: auto; background-origin: border-box; background-clip: border-box; column-gap: 0px; grid-auto-flow: column; align-content: space-around; align-items: center; grid-area: 0; columns: 0; column-rule: 1px; order: 0; flex-wrap: wrap; justify-content: center;">
+            <input type="file" id="audioFile" accept="audio/*" style="font-family: 'Roboto', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0.2px; font-variant: normal; text-transform: none; text-align: center; min-width: 100px; max-width: 500px; display: inline-flex; visibility: visible; vertical-align: baseline; resize: initial; object-fit: scale-down; object-position: 0px; top: -19px; border-width: 0px; border-radius: 0px; outline: none; box-shadow: 0px 1.6px 15px 0px #57ff00; height: 20px; aspect-ratio: 16/1; opacity: 1; bottom: 0; right: 0; left: 0; position: sticky;">
+            <button id="playPause" disabled style="font-family: 'Roboto', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0.2px; font-variant: normal; text-transform: none; text-align: center; min-width: 100px; max-width: 500px; min-height: 20px; max-height: 50px; display: inline-flex; visibility: visible; vertical-align: sub; resize: none; object-fit: fill; object-position: 0px; top: -19px; border-width: 0px; border-radius: 0px; outline: none; box-shadow: 0px 1.6px 15px 0px #c4acff; height: 30px;">Play</button>
+            <select id="visualMode" style="font-family: 'Roboto', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0.2px; font-variant: normal; text-transform: none; text-align: center; min-width: 100px; max-width: 500px; min-height: 20px; max-height: 50px; display: inline-flex; visibility: visible; vertical-align: sub; resize: none; object-fit: fill; object-position: 0px; top: -19px; border-width: 0px; border-radius: 0px; outline: none; box-shadow: 0px 1.6px 15px 0px #c4acff; height: 30px;">
+                <option value="bars">Bars</option>
+                <option value="wave">Waveform</option>
+                <option value="circular">Circular</option>
+            </select>
+            <select id="colorScheme" style="font-family: 'Roboto', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0.2px; font-variant: normal; text-transform: none; text-align: center; min-width: 100px; max-width: 500px; min-height: 20px; max-height: 50px; display: inline-flex; visibility: visible; vertical-align: sub; resize: none; object-fit: fill; object-position: 0px; top: -19px; border-width: 0px; border-radius: 0px; outline: none; box-shadow: 0px 1.6px 15px 0px #c4acff; height: 30px;">
+                <option value="rainbow">Rainbow</option>
+                <option value="monochrome">Monochrome</option>
+                <option value="fire">Fire</option>
+            </select>
+            <label>
+                Frequency smoothing:
+                <input type="range" id="frequencySmoothing" min="0" max="0.9" step="0.1" value="0.5">
+            </label>
+            <label>
+                Visualizer animation smoothing:
+                <input type="range" id="animationSmoothing" min="0" max="0.9" step="0.1" value="0.5">
+            </label>
+        </div>
+        <div id="status">Select an audio file to begin.</div>
+        <canvas id="visualizer" width="800" height="400"></canvas>
+        <script>
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const canvas = document.getElementById('visualizer');
+        const canvasCtx = canvas.getContext('2d');
+        const playPauseButton = document.getElementById('playPause');
+        const statusDiv = document.getElementById('status');
+        const visualModeSelect = document.getElementById('visualMode');
+        const colorSchemeSelect = document.getElementById('colorScheme');
+        const frequencySmoothingInput = document.getElementById('frequencySmoothing');
+        const animationSmoothingInput = document.getElementById('animationSmoothing');
+        let audioSource = null;
+        let analyser = null;
+        let audioBuffer = null;
+        let previousDataArray = null;
+
+        document.getElementById('audioFile').addEventListener('change', handleFileSelect);
+        playPauseButton.addEventListener('click', togglePlayPause);
+        visualModeSelect.addEventListener('change', () => requestAnimationFrame(draw));
+        colorSchemeSelect.addEventListener('change', () => requestAnimationFrame(draw));
+        frequencySmoothingInput.addEventListener('input', updateFrequencySmoothing);
+        animationSmoothingInput.addEventListener('input', () => requestAnimationFrame(draw));
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (!file) {
+                statusDiv.textContent = "No file selected";
+                return;
+            }
+
+            statusDiv.textContent = "Loading audio...";
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                audioContext.decodeAudioData(arrayBuffer)
+                    .then(function(buffer) {
+                        audioBuffer = buffer;
+                        setupAudio();
+                        statusDiv.textContent = "Audio loaded. Press Play to start.";
+                        playPauseButton.disabled = false;
+                    })
+                    .catch(function(err) {
+                        statusDiv.textContent = "Error decoding audio: " + err.message;
+                    });
+            };
+
+            reader.onerror = function() {
+                statusDiv.textContent = "Error reading file";
+            };
+
+            reader.readAsArrayBuffer(file);
+        }
+
+        function setupAudio() {
+            if (audioSource) {
+                audioSource.disconnect();
+            }
+            audioSource = audioContext.createBufferSource();
+            audioSource.buffer = audioBuffer;
+
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            audioSource.connect(analyser);
+            analyser.connect(audioContext.destination);
+
+            updateFrequencySmoothing();
+        }
+
+        function updateFrequencySmoothing() {
+            if (analyser) {
+                analyser.smoothingTimeConstant = parseFloat(frequencySmoothingInput.value);
+            }
+        }
+
+        function togglePlayPause() {
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+
+            if (audioSource && audioSource.isPlaying) {
+                audioSource.stop();
+                audioSource.isPlaying = false;
+                statusDiv.textContent = "Paused";
+                playPauseButton.textContent = "Play";
+            } else {
+                setupAudio();
+                audioSource.start(0);
+                audioSource.isPlaying = true;
+                statusDiv.textContent = "Playing";
+                playPauseButton.textContent = "Pause";
+                requestAnimationFrame(draw);
+            }
+        }
+
+        function getColor(i, total, scheme) {
+            switch(scheme) {
+                case 'rainbow':
+                    return `hsl(${(i / total) * 360}, 100%, 50%)`;
+                case 'monochrome':
+                    return `rgb(${i / total * 255}, ${i / total * 255}, ${i / total * 255})`;
+                case 'fire':
+                    return `rgb(255, ${i / total * 255}, 0)`;
+                default:
+                    return `rgb(${Math.random() * 255}, ${Math.random() * 255}, ${Math.random() * 255})`;
+            }
+        }
+
+        function drawBars(dataArray, bufferLength) {
+            const barWidth = (canvas.width / bufferLength) * 2.5;
+            let x = 0;
+
+            for(let i = 0; i < bufferLength; i++) {
+                const barHeight = (dataArray[i] / 255) * canvas.height;
+                canvasCtx.fillStyle = getColor(i, bufferLength, colorSchemeSelect.value);
+                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+        }
+
+        function drawWave(dataArray, bufferLength) {
+            canvasCtx.lineWidth = 2;
+            canvasCtx.strokeStyle = getColor(0, 1, colorSchemeSelect.value);
+            canvasCtx.beginPath();
+
+            const sliceWidth = canvas.width * 1.0 / bufferLength;
+            let x = 0;
+
+            for(let i = 0; i < bufferLength; i++) {
+                const v = dataArray[i] / 128.0;
+                const y = v * canvas.height/2;
+
+                if(i === 0) {
+                    canvasCtx.moveTo(x, y);
+                } else {
+                    canvasCtx.lineTo(x, y);
+                }
+
+                x += sliceWidth;
+            }
+
+            canvasCtx.lineTo(canvas.width, canvas.height/2);
+            canvasCtx.stroke();
+        }
+
+        function drawCircular(dataArray, bufferLength) {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(centerX, centerY) - 10;
+
+            for(let i = 0; i < bufferLength; i++) {
+                const barHeight = (dataArray[i] / 255) * radius;
+                const rads = Math.PI * 2 / bufferLength;
+                const x = centerX + Math.cos(rads * i) * (radius);
+                const y = centerY + Math.sin(rads * i) * (radius);
+                const x2 = centerX + Math.cos(rads * i) * (radius - barHeight);
+                const y2 = centerY + Math.sin(rads * i) * (radius - barHeight);
+
+                canvasCtx.strokeStyle = getColor(i, bufferLength, colorSchemeSelect.value);
+                canvasCtx.lineWidth = 2;
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(x, y);
+                canvasCtx.lineTo(x2, y2);
+                canvasCtx.stroke();
+            }
+        }
+
+        function smoothData(newData, previousData, smoothingFactor) {
+            if (!previousData) return newData;
+            return newData.map((value, index) => {
+                return value * (1 - smoothingFactor) + previousData[index] * smoothingFactor;
+            });
+        }
+
+        function draw() {
+            if (!analyser) return;
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+            canvasCtx.fillStyle = 'rgb(0, 0, 0)';
+            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+            switch(visualModeSelect.value) {
+                case 'bars':
+                case 'circular':
+                    analyser.getByteFrequencyData(dataArray);
+                    break;
+                case 'wave':
+                    analyser.getByteTimeDomainData(dataArray);
+                    break;
+            }
+
+            const smoothedData = smoothData(dataArray, previousDataArray, parseFloat(animationSmoothingInput.value));
+
+            switch(visualModeSelect.value) {
+                case 'bars':
+                    drawBars(smoothedData, bufferLength);
+                    break;
+                case 'wave':
+                    drawWave(smoothedData, bufferLength);
+                    break;
+                case 'circular':
+                    drawCircular(smoothedData, bufferLength);
+                    break;
+            }
+
+            previousDataArray = smoothedData;
+
+            if (audioSource && audioSource.isPlaying) {
+                requestAnimationFrame(draw);
+            }
+        }
+    </script>
+    </body>
+</html>
